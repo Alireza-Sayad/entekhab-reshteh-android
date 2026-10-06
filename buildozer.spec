@@ -10,7 +10,7 @@ source.include_exts = py,db,png,jpg,jpeg,kv,json,ttf
 
 version = 1.1.0
 
-requirements = python3,kivy,arabic-reshaper,python-bidi==0.4.2
+requirements = python3==3.13.7,kivy,arabic-reshaper,python-bidi==0.4.2
 
 orientation = landscape
 fullscreen = 0
