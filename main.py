@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import re
@@ -50,23 +51,25 @@ def resource_path(name):
     return Path(__file__).resolve().parent / name
 
 
+BUNDLED_FONT = resource_path("fonts/Vazirmatn-Regular.ttf")
+
+
 def find_persian_font():
     """
-    اول فونت داخل پروژه را پیدا می‌کند؛ اگر نبود از فونت سیستم استفاده می‌کند.
-    بنابراین برای تست ویندوز لازم نیست فعلاً فونت جدا اضافه کنی.
+    اولویت قطعی با فونت داخل خود پروژه است تا ظاهر ویندوز و Android یکی باشد.
+    اگر فونت bundle نشده باشد، فقط برای جلوگیری از crash از فونت سیستم استفاده می‌کنیم.
     """
     candidates = [
-        resource_path("fonts/Vazirmatn-Regular.ttf"),
+        BUNDLED_FONT,
         resource_path("fonts/Vazirmatn.ttf"),
         resource_path("fonts/IRANSans.ttf"),
     ]
 
     if platform == "android":
         candidates += [
-            Path("/system/fonts/NotoNaskhArabic-Regular.ttf"),
             Path("/system/fonts/NotoSansArabic-Regular.ttf"),
+            Path("/system/fonts/NotoNaskhArabic-Regular.ttf"),
             Path("/system/fonts/NotoSansArabicUI-Regular.ttf"),
-            Path("/system/fonts/NotoSans-Regular.ttf"),
         ]
     else:
         candidates += [
@@ -77,7 +80,7 @@ def find_persian_font():
 
     for p in candidates:
         try:
-            if p.exists():
+            if Path(p).exists():
                 return str(p)
         except Exception:
             pass
@@ -408,11 +411,11 @@ class RootUI(BoxLayout):
         top = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(7))
 
         self.pdf_btn = button(
-            text="PDF",
+            text=fa("خروجی"),
             size_hint_x=.13,
             font_size="15sp",
         )
-        self.pdf_btn.bind(on_release=lambda *_: App.get_running_app().export_pdf())
+        self.pdf_btn.bind(on_release=lambda *_: App.get_running_app().export_html())
         top.add_widget(self.pdf_btn)
 
         self.add_btn = button(
@@ -760,30 +763,9 @@ class EntekhabApp(App):
         pop.open()
 
     # --------------------------------------------------------
-    # PDF
+    # HTML export
     # --------------------------------------------------------
-    def _pdf_font_path(self):
-        # همان فونتی که UI استفاده می‌کند، اولویت دارد.
-        if PERSIAN_FONT_PATH and os.path.exists(PERSIAN_FONT_PATH):
-            return PERSIAN_FONT_PATH
-
-        candidates = [
-            resource_path("fonts/Vazirmatn-Regular.ttf"),
-            Path("/system/fonts/NotoNaskhArabic-Regular.ttf"),
-            Path("/system/fonts/NotoSansArabic-Regular.ttf"),
-            Path(r"C:\Windows\Fonts\tahoma.ttf"),
-        ]
-
-        for p in candidates:
-            try:
-                if Path(p).exists():
-                    return str(p)
-            except Exception:
-                pass
-
-        return None
-
-    def _desktop_pdf_dir(self):
+    def _desktop_export_dir(self):
         downloads = Path.home() / "Downloads"
         if not downloads.exists():
             downloads = app_data_dir()
@@ -792,7 +774,181 @@ class EntekhabApp(App):
         target.mkdir(parents=True, exist_ok=True)
         return target
 
-    def export_pdf(self):
+    @staticmethod
+    def _html_cell(value):
+        return html.escape(str(value or ""), quote=True)
+
+    def _build_export_html(self, rows):
+        body_rows = []
+
+        for row in rows:
+            cells = [
+                row["priority"],
+                row.get("code", ""),
+                row.get("major", ""),
+                row.get("university", ""),
+                row.get("province", ""),
+                row.get("course", ""),
+                row.get("admission", ""),
+                row.get("semester", ""),
+                row.get("gender", ""),
+                row.get("notes", ""),
+            ]
+
+            body_rows.append(
+                "<tr>" +
+                "".join(
+                    f"<td>{self._html_cell(value)}</td>"
+                    for value in cells
+                ) +
+                "</tr>"
+            )
+
+        generated_at = datetime.now().strftime("%Y/%m/%d - %H:%M")
+
+        return f"""<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>لیست انتخاب رشته</title>
+<style>
+    @page {{
+        size: A4 landscape;
+        margin: 10mm;
+    }}
+
+    * {{
+        box-sizing: border-box;
+    }}
+
+    html, body {{
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #111111;
+        direction: rtl;
+        font-family: Tahoma, Arial, "Noto Sans Arabic", sans-serif;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }}
+
+    body {{
+        padding: 14px;
+    }}
+
+    .page {{
+        width: 100%;
+        max-width: 1120px;
+        margin: 0 auto;
+    }}
+
+    h1 {{
+        margin: 0 0 14px;
+        text-align: center;
+        font-size: 20px;
+        font-weight: 700;
+    }}
+
+    .meta {{
+        margin: 0 0 10px;
+        text-align: center;
+        color: #555;
+        font-size: 11px;
+    }}
+
+    table {{
+        width: 100%;
+        margin: 0 auto;
+        border-collapse: collapse;
+        table-layout: fixed;
+        direction: rtl;
+        font-size: 10px;
+    }}
+
+    th, td {{
+        border: 1px solid #b9b9b9;
+        padding: 6px 5px;
+        vertical-align: middle;
+        text-align: right;
+        line-height: 1.65;
+        overflow-wrap: anywhere;
+    }}
+
+    th {{
+        background: #ebebeb;
+        text-align: center;
+        font-weight: 700;
+        white-space: nowrap;
+    }}
+
+    td:nth-child(1),
+    td:nth-child(2) {{
+        text-align: center;
+        direction: ltr;
+    }}
+
+    th:nth-child(1) {{ width: 5%; }}
+    th:nth-child(2) {{ width: 8%; }}
+    th:nth-child(3) {{ width: 15%; }}
+    th:nth-child(4) {{ width: 20%; }}
+    th:nth-child(5) {{ width: 10%; }}
+    th:nth-child(6) {{ width: 7%; }}
+    th:nth-child(7) {{ width: 9%; }}
+    th:nth-child(8) {{ width: 8%; }}
+    th:nth-child(9) {{ width: 7%; }}
+    th:nth-child(10) {{ width: 11%; }}
+
+    @media print {{
+        body {{
+            padding: 0;
+        }}
+
+        .page {{
+            max-width: none;
+        }}
+
+        thead {{
+            display: table-header-group;
+        }}
+
+        tr {{
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+    }}
+</style>
+</head>
+<body>
+<div class="page">
+    <h1>لیست انتخاب رشته</h1>
+    <div class="meta">تعداد انتخاب‌ها: {len(rows)} &nbsp; | &nbsp; زمان خروجی: {generated_at}</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>اولویت</th>
+                <th>کدرشته</th>
+                <th>رشته</th>
+                <th>دانشگاه</th>
+                <th>استان</th>
+                <th>دوره</th>
+                <th>پذیرش</th>
+                <th>نیمسال</th>
+                <th>جنسیت</th>
+                <th>توضیحات</th>
+            </tr>
+        </thead>
+        <tbody>
+            {''.join(body_rows)}
+        </tbody>
+    </table>
+</div>
+</body>
+</html>
+"""
+
+    def export_html(self):
         rows = []
 
         for i, item in enumerate(self.choices):
@@ -802,184 +958,54 @@ class EntekhabApp(App):
                 rows.append(row)
 
         if not rows:
-            self.alert("هیچ انتخابی برای خروجی PDF وجود ندارد")
-            return
-
-        try:
-            from fpdf import FPDF
-        except Exception as exc:
-            self.alert(f"ماژول PDF بارگذاری نشد: {exc}")
-            return
-
-        font_path = self._pdf_font_path()
-        if not font_path:
-            self.alert("فونت فارسی مناسب برای PDF پیدا نشد")
+            self.alert("هیچ انتخابی برای خروجی وجود ندارد")
             return
 
         filename = datetime.now().strftime(
-            "entekhab_resht_%Y-%m-%d_%H-%M-%S.pdf"
+            "entekhab_resht_%Y-%m-%d_%H-%M-%S.html"
         )
 
-        # ابتدا داخل فضای امن برنامه ساخته می‌شود.
-        temp_path = app_data_dir() / filename
-
         try:
-            pdf = FPDF(
-                orientation="L",
-                unit="mm",
-                format="A4",
-            )
-
-            pdf.set_margins(6, 8, 6)
-            pdf.set_auto_page_break(auto=True, margin=8)
-
-            pdf.add_font(
-                "Fa",
-                fname=font_path,
-            )
-
-            pdf.add_page()
-
-            # عنوان؛ شبیه خروجی نسخه ویندوز
-            pdf.set_font("Fa", size=13)
-            pdf.cell(
-                0,
-                10,
-                fa("لیست انتخاب رشته"),
-                align="C",
-                new_x="LMARGIN",
-                new_y="NEXT",
-            )
-
-            pdf.ln(2)
-
-            # برای اینکه جدول از نظر بصری RTL باشد، ستون‌ها را
-            # از چپ به راست برعکس می‌چینیم؛ در نتیجه اولویت سمت راست می‌افتد.
-            headers = [
-                "توضیحات",   # آخرین ستون از سمت چپ
-                "جنسیت",
-                "نیمسال",
-                "پذیرش",
-                "دوره",
-                "استان",
-                "دانشگاه",
-                "رشته",
-                "کدرشته",
-                "اولویت",    # اولین ستون از سمت راست
-            ]
-
-            # عرض‌ها طوری تنظیم شده‌اند که با وجود ستون توضیحات،
-            # کل جدول همچنان دقیقاً وسط صفحه A4 افقی قرار بگیرد.
-            widths = [
-                32,   # توضیحات
-                18,   # جنسیت
-                22,   # نیمسال
-                22,   # پذیرش
-                18,   # دوره
-                26,   # استان
-                50,   # دانشگاه
-                46,   # رشته
-                22,   # کدرشته
-                13,   # اولویت
-            ]
-
-            table_width = sum(widths)
-            page_width = pdf.w - pdf.l_margin - pdf.r_margin
-            table_left = pdf.l_margin + max(0, (page_width - table_width) / 2)
-
-            # هدر خاکستری مثل نسخه ویندوز
-            pdf.set_fill_color(235, 235, 235)
-            pdf.set_draw_color(185, 185, 185)
-            pdf.set_line_width(0.25)
-            pdf.set_font("Fa", size=7.2)
-
-            pdf.set_x(table_left)
-            for h, w in zip(headers, widths):
-                pdf.cell(
-                    w,
-                    7,
-                    fa(h),
-                    border=1,
-                    align="C",
-                    fill=True,
-                )
-            pdf.ln()
-
-            # بدنه جدول
-            pdf.set_fill_color(255, 255, 255)
-            pdf.set_font("Fa", size=6.4)
-
-            for row in rows:
-                values = [
-                    row.get("notes", ""),
-                    row.get("gender", ""),
-                    row.get("semester", ""),
-                    row.get("admission", ""),
-                    row.get("course", ""),
-                    row.get("province", ""),
-                    row.get("university", ""),
-                    row.get("major", ""),
-                    str(row.get("code", "")),
-                    str(row["priority"]),
-                ]
-
-                pdf.set_x(table_left)
-
-                for j, (value, width) in enumerate(zip(values, widths)):
-                    text_value = str(value or "")
-
-                    # ستون‌های متنی فارسی
-                    if j <= 7:
-                        text_value = fa(text_value)
-
-                    # جلوگیری از بیرون‌زدگی متن از سلول
-                    limits = [26, 16, 16, 18, 16, 22, 38, 34, 12, 4]
-                    max_len = limits[j]
-
-                    if len(text_value) > max_len:
-                        text_value = text_value[: max_len - 3] + "..."
-
-                    if j in (8, 9):
-                        align = "C"
-                    else:
-                        align = "R"
-
-                    pdf.cell(
-                        width,
-                        6.3,
-                        text_value,
-                        border=1,
-                        align=align,
-                    )
-
-                pdf.ln()
-
-            pdf.output(str(temp_path))
-
+            html_text = self._build_export_html(rows)
+            temp_path = app_data_dir() / filename
+            temp_path.write_text(html_text, encoding="utf-8")
         except Exception as exc:
-            self.alert(f"خطا در ساخت PDF: {exc}")
+            self.alert(f"خطا در ساخت خروجی: {exc}")
             return
 
         if platform == "android":
-            self._save_pdf_android_downloads(temp_path, filename)
+            self._save_html_android_downloads(temp_path, filename)
         else:
-            # تست ویندوز: همان PDF نهایی داخل Downloads/EntekhabReshteh
-            final_path = self._desktop_pdf_dir() / filename
+            final_path = self._desktop_export_dir() / filename
 
             try:
-                final_path.write_bytes(temp_path.read_bytes())
+                final_path.write_text(html_text, encoding="utf-8")
             except Exception as exc:
-                self.alert(f"PDF ساخته شد ولی کپی نشد: {exc}")
+                self.alert(f"خروجی ساخته شد ولی ذخیره نشد: {exc}")
                 return
 
-            self.set_status(f"PDF ساخته شد: {filename}")
-            self.alert(f"PDF ساخته شد:\n{final_path}")
+            self.set_status(f"خروجی ساخته شد: {filename}")
 
-    def _save_pdf_android_downloads(self, source_path, filename):
+            # روی ویندوز مستقیم در مرورگر باز می‌شود تا همان خروجی Android را ببینی.
+            try:
+                import webbrowser
+                webbrowser.open(final_path.as_uri())
+            except Exception:
+                pass
+
+            self.alert(
+                "خروجی HTML ساخته شد\n"
+                f"{final_path}\n\n"
+                "برای PDF در مرورگر Print / چاپ را بزن و Save as PDF را انتخاب کن."
+            )
+
+    def _save_html_android_downloads(self, source_path, filename):
         """
         Android 10+:
         Download/EntekhabReshteh/<filename>
-        با MediaStore و بدون دسترسی عجیب به کل حافظه.
+
+        HTML را با MediaStore ذخیره می‌کند و سپس با مرورگر باز می‌کند.
+        مرورگر Android خودش فارسی/RTL و متن انگلیسی را درست رندر می‌کند.
         """
         try:
             from jnius import autoclass
@@ -993,6 +1019,9 @@ class EntekhabApp(App):
             ContentValues = autoclass(
                 "android.content.ContentValues"
             )
+            Intent = autoclass(
+                "android.content.Intent"
+            )
 
             activity = PythonActivity.mActivity
             resolver = activity.getContentResolver()
@@ -1004,7 +1033,7 @@ class EntekhabApp(App):
             )
             values.put(
                 MediaStore.MediaColumns.MIME_TYPE,
-                "application/pdf",
+                "text/html",
             )
             values.put(
                 MediaStore.MediaColumns.RELATIVE_PATH,
@@ -1025,31 +1054,49 @@ class EntekhabApp(App):
 
             if output_stream is None:
                 raise RuntimeError(
-                    "OutputStream برای فایل PDF ایجاد نشد"
+                    "امکان نوشتن فایل خروجی ایجاد نشد"
                 )
 
-            with open(source_path, "rb") as src:
-                while True:
-                    chunk = src.read(64 * 1024)
-                    if not chunk:
-                        break
-                    output_stream.write(chunk)
+            try:
+                with open(source_path, "rb") as src:
+                    while True:
+                        chunk = src.read(64 * 1024)
+                        if not chunk:
+                            break
+                        output_stream.write(chunk)
 
-            output_stream.flush()
-            output_stream.close()
+                output_stream.flush()
+            finally:
+                output_stream.close()
 
             self.set_status(
-                "PDF در Downloads ذخیره شد"
-            )
-            self.alert(
-                "PDF با موفقیت ذخیره شد\n"
-                "Download / EntekhabReshteh"
+                "خروجی در Downloads ذخیره شد"
             )
 
+            # فایل را مستقیم با مرورگر/Viewer باز می‌کنیم.
+            try:
+                intent = Intent(Intent.ACTION_VIEW)
+                intent.setDataAndType(uri, "text/html")
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                activity.startActivity(intent)
+
+                self.alert(
+                    "خروجی ساخته شد و در مرورگر باز شد\n\n"
+                    "برای ساخت PDF از منوی مرورگر گزینه Print / چاپ را بزن\n"
+                    "و سپس Save as PDF را انتخاب کن.\n\n"
+                    "فایل HTML هم در این مسیر ذخیره شده:\n"
+                    "Download / EntekhabReshteh"
+                )
+            except Exception:
+                self.alert(
+                    "خروجی HTML با موفقیت ذخیره شد\n"
+                    "Download / EntekhabReshteh\n\n"
+                    "فایل را با مرورگر باز کن و Print → Save as PDF را بزن."
+                )
+
         except Exception as exc:
-            # این بار خطای واقعی Android را مخفی نمی‌کنیم.
             self.alert(
-                f"خطا در ذخیره PDF در Downloads: {exc}"
+                f"خطا در ذخیره خروجی در Downloads: {exc}"
             )
 
 
